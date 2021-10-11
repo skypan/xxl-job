@@ -29,7 +29,9 @@ public class JobScheduleHelper {
 
     public static final long PRE_READ_MS = 5000;    // pre read
 
+    // TODO 调度线程
     private Thread scheduleThread;
+    // TODO 时间轮线程：不断根据当前时间求余从时间轮ringData中获取任务列表，取出任务之后执行任务
     private Thread ringThread;
     private volatile boolean scheduleThreadToStop = false;
     private volatile boolean ringThreadToStop = false;
@@ -43,6 +45,8 @@ public class JobScheduleHelper {
             public void run() {
 
                 try {
+                    // TODO System.currentTimeMillis()%1000（0~999的随机数）
+                    // TODO 定时执行（5000 - randTime）其中randTime = 0~999
                     TimeUnit.MILLISECONDS.sleep(5000 - System.currentTimeMillis()%1000 );
                 } catch (InterruptedException e) {
                     if (!scheduleThreadToStop) {
@@ -77,18 +81,22 @@ public class JobScheduleHelper {
 
                         // 1、pre read
                         long nowTime = System.currentTimeMillis();
+                        // TODO 读取未来5秒内的任务
+                        // TODO Quartz读取未来30秒
                         List<XxlJobInfo> scheduleList = XxlJobAdminConfig.getAdminConfig().getXxlJobInfoDao().scheduleJobQuery(nowTime + PRE_READ_MS, preReadCount);
                         if (scheduleList!=null && scheduleList.size()>0) {
                             // 2、push time-ring
                             for (XxlJobInfo jobInfo: scheduleList) {
 
                                 // time-ring jump
+                                // TODO 过期5ms之外的任务
                                 if (nowTime > jobInfo.getTriggerNextTime() + PRE_READ_MS) {
                                     // 2.1、trigger-expire > 5s：pass && make next-trigger-time
                                     logger.warn(">>>>>>>>>>> xxl-job, schedule misfire, jobId = " + jobInfo.getId());
 
                                     // 1、misfire match
                                     MisfireStrategyEnum misfireStrategyEnum = MisfireStrategyEnum.match(jobInfo.getMisfireStrategy(), MisfireStrategyEnum.DO_NOTHING);
+                                    // TODO 如果调度过期策略 == 立即执行一次，就触发一次
                                     if (MisfireStrategyEnum.FIRE_ONCE_NOW == misfireStrategyEnum) {
                                         // FIRE_ONCE_NOW 》 trigger
                                         JobTriggerPoolHelper.trigger(jobInfo.getId(), TriggerTypeEnum.MISFIRE, -1, null, null, null);
@@ -96,12 +104,16 @@ public class JobScheduleHelper {
                                     }
 
                                     // 2、fresh next
+                                    // TODO 刷新下次执行时间
                                     refreshNextValidTime(jobInfo, new Date());
 
                                 } else if (nowTime > jobInfo.getTriggerNextTime()) {
+                                    // TODO nextTime < nowTime <= nextTime + 5秒
+                                    // TODO 过期5ms内的任务
                                     // 2.2、trigger-expire < 5s：direct-trigger && make next-trigger-time
 
                                     // 1、trigger
+                                    // TODO 触发执行器执行
                                     JobTriggerPoolHelper.trigger(jobInfo.getId(), TriggerTypeEnum.CRON, -1, null, null, null);
                                     logger.debug(">>>>>>>>>>> xxl-job, schedule push trigger : jobId = " + jobInfo.getId() );
 
@@ -111,6 +123,7 @@ public class JobScheduleHelper {
                                     // next-trigger-time in 5s, pre-read again
                                     if (jobInfo.getTriggerStatus()==1 && nowTime + PRE_READ_MS > jobInfo.getTriggerNextTime()) {
 
+                                        // TODO 如果接下来5秒内还执行则直接放到时间轮中
                                         // 1、make ring second
                                         int ringSecond = (int)((jobInfo.getTriggerNextTime()/1000)%60);
 
@@ -123,9 +136,11 @@ public class JobScheduleHelper {
                                     }
 
                                 } else {
+                                    // TODO nowTime <= triggerTime
                                     // 2.3、trigger-pre-read：time-ring trigger && make next-trigger-time
 
                                     // 1、make ring second
+                                    // TODO 任务还没有到执行时间则直接放到时间轮中
                                     int ringSecond = (int)((jobInfo.getTriggerNextTime()/1000)%60);
 
                                     // 2、push time ring
@@ -246,6 +261,7 @@ public class JobScheduleHelper {
 
                         // ring trigger
                         logger.debug(">>>>>>>>>>> xxl-job, time-ring beat : " + nowSecond + " = " + Arrays.asList(ringItemData) );
+                        // TODO 从时间轮里面取出任务，立马执行
                         if (ringItemData.size() > 0) {
                             // do trigger
                             for (int jobId: ringItemData) {
